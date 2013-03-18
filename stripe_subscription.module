@@ -1,0 +1,752 @@
+<?php
+/**
+ * @file
+ * This module provides the subscription
+ * functionality and integration with Stripe
+ */
+
+/**
+ * Default Plan Group ID
+ */
+define('PLAN_GROUP_DEFAULT', 1);
+
+/**
+ * Implements hook_init().
+ */
+function stripe_subscription_init() {
+  if (module_exists('context')) {
+    $plugin = context_get_plugin('reaction', 'plan_group');
+    if ($plugin) {
+      $plugin->execute();
+    }
+  }
+}
+
+/**
+ * Implements hook_permission().
+ */
+function stripe_subscription_permission() {
+  $perms = array();
+  stripe_initialize();
+  try {
+    $plans = Stripe_Plan::all();
+
+    foreach ($plans->data as $plan) {
+      $perms['subscribe: ' . $plan->id] = array(
+        'title' => 'Subscribe to: ' . $plan->name,
+        'description' => 'This user may subscribe to plan: ' . $plan->name
+      );
+    }
+  }
+  catch (Exception $e) {
+    watchdog('stripe', 'Stripe_Plan::all Exception: %str', array('%str' => $e->getMessage()));
+  }
+  return $perms;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function stripe_subscription_theme() {
+  return array(
+    'stripe_subscription_admin_plans' => array(
+      'template' => 'stripe_subscription-admin-plan-form',
+      'file' => 'stripe_subscription.admin.inc',
+      'render element' => 'form',
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function stripe_subscription_menu() {
+  $items = array();
+  $items['subscription'] = array(
+    'title' => 'Subscription',
+    'description' => 'Subscription form.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('stripe_subscription_subscription_form'),
+    'access callback' => 'user_is_logged_in',
+    'file' => 'stripe_subscription.pages.inc',
+  );
+  $items['subscription/cancel'] = array(
+    'title' => 'Cancel Subscription',
+    'description' => 'Cancel subscription form.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('stripe_subscription_subscription_cancel_form'),
+    'access arguments' => array('access content'),
+    'file' => 'stripe_subscription.pages.inc',
+  );
+  $items['user/%/edit/subscription'] = array(
+    'title' => 'Subscription',
+    'description' => 'Subscription form.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('stripe_subscription_subscription_form', 1),
+    'access arguments' => array('access content'),
+    'file' => 'stripe_subscription.pages.inc',
+    'type' => MENU_LOCAL_TASK
+  );
+  $items['user/%/edit/subscription/cancel'] = array(
+    'title' => 'Cancel Subscription',
+    'description' => 'Cancel subscription form.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('stripe_subscription_subscription_cancel_form', 1),
+    'access arguments' => array('access content'),
+    'file' => 'stripe_subscription.pages.inc',
+    'type' => MENU_LOCAL_TASK
+  );
+  $items['admin/config/stripe/delete-test'] = array(
+    'title' => 'Delete Test Data',
+    'description' => 'Deletes the local test data.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('stripe_subscription_admin_delete_test_data'),
+    'access arguments' => array('administer stripe'),
+    'file' => 'stripe_subscription.admin.inc',
+  );
+  $items['admin/config/stripe/subscription'] = array(
+    'title' => 'Subscription Settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('stripe_subscription_admin_settings'),
+    'access arguments' => array('administer stripe'),
+    'file' => 'stripe_subscription.admin.inc',
+  );
+  $items['admin/config/stripe/plans'] = array(
+    'title' => 'Stripe Plans',
+    'description' => 'Stripe plan management.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('stripe_subscription_admin_plans'),
+    'access arguments' => array('administer stripe'),
+    'file' => 'stripe_subscription.admin.inc',
+  );
+  $items['admin/config/stripe/plan-groups/add'] = array(
+    'title' => 'Add a Plan Group',
+    'description' => 'Add a stripe plan group.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('stripe_subscription_admin_plan_group_edit', 4),
+    'access arguments' => array('administer stripe'),
+    'file' => 'stripe_subscription.admin.inc',
+    'type' => MENU_CALLBACK
+  );
+  $items['admin/config/stripe/plan-groups/%'] = array(
+    'title' => 'Update Plan Group',
+    'description' => 'Update a stripe plan group.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('stripe_subscription_admin_plan_group_edit', 4),
+    'access arguments' => array('administer stripe'),
+    'file' => 'stripe_subscription.admin.inc',
+    'type' => MENU_CALLBACK
+  );
+  $items['admin/config/stripe/plan-groups/%/remove'] = array(
+    'title' => 'Remove Plan Group',
+    'description' => 'Remove a stripe plan group.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('stripe_subscription_admin_plan_group_remove', 4),
+    'access arguments' => array('administer stripe'),
+    'file' => 'stripe_subscription.admin.inc',
+    'type' => MENU_CALLBACK
+  );
+  $items['admin/config/stripe/plans/add'] = array(
+    'title' => 'Add a Stripe Plan',
+    'description' => 'Add a stripe plan.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('stripe_subscription_admin_plans_edit', 4),
+    'access arguments' => array('administer stripe'),
+    'file' => 'stripe_subscription.admin.inc',
+    'type' => MENU_CALLBACK
+  );
+  $items['admin/config/stripe/plans/%'] = array(
+    'title' => 'Update Plan',
+    'description' => 'Update a stripe plan.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('stripe_subscription_admin_plans_edit', 4),
+    'access arguments' => array('administer stripe'),
+    'file' => 'stripe_subscription.admin.inc',
+    'type' => MENU_CALLBACK
+  );
+  $items['admin/config/stripe/plans/%/roles'] = array(
+    'title' => 'Plan Roles',
+    'description' => 'Set role assignments and unassignments based on this plan.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('stripe_subscription_admin_plans_roles', 4),
+    'access arguments' => array('administer stripe'),
+    'file' => 'stripe_subscription.admin.inc',
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_cron().
+ */
+function stripe_subscription_cron() {
+  // Only run once per day.
+  $lastrun = variable_get('stripe_subscription_cron_lastrun', '');
+  $today = date('Y-m-d');
+  if ($lastrun == $today) {
+    return;
+  }
+
+  stripe_initialize();
+  $livemode = stripe_subscription_live() ? 1 : 0;
+
+  $days_before = variable_get('stripe_subscribe_pmt_upcoming_days', '3');
+  $start = strtotime(date('Y-m-d', time() + $days_before*86400));
+  $end = $start + 86400;
+
+  $query = db_select('stripe_customers', 'sc');
+  $query->fields('sc', array('uid', 'customer_id'));
+  //$query->condition('sc.current_period_end', $start, '>=');
+  //$query->condition('sc.current_period_end', $end, '<');
+  $query->condition('sc.livemode', $livemode);
+  $result = $query->execute();
+
+  foreach ($result as $row) {
+    try {
+      // Confirm local data is still valid by retreiving the customer record
+      $customer = Stripe_Customer::retrieve($form_state['values']['customer_id']);
+      if (isset($customer->subscription) &&
+        $customer->subscription->current_period_end >= $start &&
+        $customer->subscription->current_period_end < $end &&
+        $customer->subscription->status == "active"
+        ) {
+          $params = array('account' => user_load($row->uid));
+          $params['stripe_customer'] = $customer;
+          $params['stripe_plan'] = $customer->subscription->plan;
+
+          drupal_mail('stripe_subscription', 'subscription_pmt_upcoming', $params['account']->mail, user_preferred_language($params['account']), $params);
+      }
+      else {
+        // Something isn't right, re-sync customer
+        stripe_subscription_sync_customer($customer, $row->uid);
+      }
+
+    }
+    catch (Exception $e) {
+      watchdog('stripe', 'Stripe_Customer::retrieve Exception: %str', array('%str' => $e->getMessage()));
+      continue;
+    }
+  }
+
+  variable_set('stripe_subscription_cron_lastrun', $today);
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function stripe_subscription_form_user_register_form_alter(&$form, &$form_state) {
+  if (variable_get('stripe_subscription_reg_enable', 0) == 1 && user_is_anonymous()) {
+    // Add the subscription form to the bottom of the registration form.
+    require_once drupal_get_path('module', 'stripe_subscription') . '/stripe_subscription.pages.inc';
+    $form = stripe_subscription_subscription_form($form, $form_state);
+  }
+}
+
+/**
+ * Implements hook_user_insert().
+ */
+function stripe_subscription_user_insert(&$edit, $account, $category) {
+  if (isset($edit['stripe_customer'])) {
+    stripe_subscription_sync_customer($edit['stripe_customer'], $edit['uid']);
+    stripe_initialize();
+    try {
+      // Reset the customer description with the correct account data.
+      $customer = Stripe_Customer::retrieve($edit['stripe_customer']->id);
+      $customer->description = stripe_subscription_format_description($edit['uid'], $edit['name'], $edit['mail']);
+      $customer->save();
+    }
+    catch (Exception $e) {
+      watchdog('stripe', 'Stripe_Customer::save Exception: %str', array('%str' => $e->getMessage()));
+    }
+  }
+}
+
+/**
+ * Implements hook_token_info().
+ */
+function stripe_subscription_token_info() {
+  $info['types']['stripe-subscription'] = array(
+    'name' => t('Stripe Subscription'),
+    'description' => t('Tokens related to stripe subscriptions.')
+  );
+  $info['tokens']['stripe-subscription']['name'] = array(
+    'name' => t('Name'),
+    'description' => t('The username of the subscriber')
+  );
+  $info['tokens']['stripe-subscription']['plan'] = array(
+    'name' => t('Plan'),
+    'description' => t('The subscription plan of the subscriber')
+  );
+  $info['tokens']['stripe-subscription']['previous-plan'] = array(
+    'name' => t('Previous Plan'),
+    'description' => t('The previous plan of the subscriber. This token is only available when a subscription is updated.')
+  );
+  $info['tokens']['stripe-subscription']['invoice-id'] = array(
+    'name' => t('Invoice ID'),
+    'description' => t('An invoice ID')
+  );
+  $info['tokens']['stripe-subscription']['amount'] = array(
+    'name' => t('Amount'),
+    'description' => t('The invoice amount')
+  );
+  $info['tokens']['stripe-subscription']['subscription-url'] = array(
+    'name' => t('Subscription URL'),
+    'description' => t('The URL to the user subscription form')
+  );
+  $info['tokens']['stripe-subscription']['ac-last4'] = array(
+    'name' => t('Active Card Last4'),
+    'description' => t('The last 4 digits of the active card')
+  );
+  $info['tokens']['stripe-subscription']['ac-type'] = array(
+    'name' => t('Active Card Type'),
+    'description' => t('The card type of the active card')
+  );
+  $info['tokens']['stripe-subscription']['ac-exp-month'] = array(
+    'name' => t('Active Card Exp Month'),
+    'description' => t('The expiration month of the active card')
+  );
+  $info['tokens']['stripe-subscription']['ac-exp-year'] = array(
+    'name' => t('Active Card Exp Year'),
+    'description' => t('The expiration year of the active card')
+  );
+  $info['tokens']['stripe-subscription']['days-to-renewal'] = array(
+    'name' => t('Days to Renewal'),
+    'description' => t('The number of days till the subscription will renew')
+  );
+  return $info;
+}
+
+/**
+ * Implements hook_tokens().
+ */
+function stripe_subscription_tokens($type, $tokens, $data = array(), $options = array()) {
+  $replacements = array();
+  $sanitize = !empty($options['sanitize']);
+
+  if ($type == 'stripe-subscription') {
+    $account = $data['account'];
+    $customer = isset($data['stripe_customer']) ? $data['stripe_customer'] : NULL;
+    $plan = isset($data['stripe_plan']) ? $data['stripe_plan'] : NULL;
+
+    foreach ($tokens as $name => $original) {
+      switch ($name) {
+        case 'name':
+          $replacements[$original] = $data['account']->name;
+          break;
+
+        case 'plan':
+          $replacements[$original] = isset($plan) ? $plan->name : '';
+          break;
+
+        case 'previous-plan':
+          $replacements[$original] = isset($data['previous-plan']) ? $data['previous-plan'] : '';
+          break;
+
+        case 'invoice-id':
+          $replacements[$original] = isset($data['invoice-id']) ? $data['invoice-id'] : '';
+          break;
+
+        case 'amount':
+          $replacements[$original] = isset($data['amount']) ? $data['amount'] : '';
+          break;
+
+        case 'subscription-url':
+          $replacements[$original] = url('subscription', array('absolute' => TRUE));
+          break;
+
+        case 'stripe-subscription:days-to-renewal':
+          $replacements[$original] = isset($customer) && isset($customer->subscription) ? floor($customer->subscription->current_period_end - time() / 86400): '';
+          break;
+
+        case 'ac-last4':
+          $replacements[$original] = isset($customer) ? $customer->active_card->last4 : '';
+          break;
+
+        case 'ac-type':
+          $replacements[$original] = isset($customer) ? $customer->active_card->type : '';
+          break;
+
+        case 'ac-exp-month':
+          $replacements[$original] = isset($customer) ? $customer->active_card->exp_month : '';
+          break;
+
+        case 'ac-exp-year':
+          $replacements[$original] = isset($customer) ? $customer->active_card->exp_year : '';
+          break;
+      }
+    }
+  }
+  return $replacements;
+}
+
+/**
+ * Implements hook_stripe_webhooks().
+ */
+function stripe_subscription_stripe_webhook($event) {
+  $livemode = stripe_subscription_live() ? 1 : 0;
+  switch ($event->type) {
+    case 'customer.created':
+      stripe_subscription_sync_customer($event->data->object->customer);
+      break;
+
+    case 'customer.updated':
+      stripe_subscription_sync_customer($event->data->object->customer);
+      break;
+
+    case 'customer.deleted':
+      db_delete('stripe_customers')
+        ->condition('livemode', $livemode)
+        ->condition('customer_id', $event->data->object->customer->id)
+        ->execute();
+      break;
+
+    case 'customer.subscription.created':
+      $uid = stripe_subscription_get_uid_from_customer_id($event->data->object->customer);
+      stripe_subscription_set_roles('subscribe', $event->data->object->plan->id, $uid);
+      stripe_subscription_sync_customer($event->data->object->customer);
+      break;
+
+    case 'customer.subscription.updated':
+      $uid = stripe_subscription_get_uid_from_customer_id($event->data->object->customer);
+      stripe_subscription_set_roles('unsubscribe', $event->data->previous_attributes->plan->id, $uid);
+      stripe_subscription_set_roles('subscribe', $event->data->object->plan->id, $uid);
+      stripe_subscription_sync_customer($event->data->object->customer);
+      break;
+
+    case 'customer.subscription.deleted':
+      $uid = stripe_subscription_get_uid_from_customer_id($event->data->object->customer);
+      stripe_subscription_set_roles('unsubscribe', $event->data->object->plan->id, $uid);
+      stripe_subscription_sync_customer($event->data->object->customer);
+      // Send subscription cancelled confirmation
+      $params = array();
+      $params['account'] = user_load($uid);
+      $params['stripe_customer'] = $event->data->object->customer;
+      $params['event'] = $event;
+      $params['stripe_plan'] = $event->data->object->plan;
+      drupal_mail('stripe_subscription', 'subscription_cancelled', $params['account']->mail, user_preferred_language($params['account']), $params);
+      break;
+
+    case 'invoice.payment_succeeded':
+      $uid = stripe_subscription_get_uid_from_customer_id($event->data->object->customer);
+      // Send invoice paid email
+      $params = array();
+      $params['account'] = user_load($uid);
+      $params['stripe_customer'] = $event->data->object->customer;
+      $params['stripe_plan'] = $event->data->object->customer->subscription->plan;
+      $params['event'] = $event;
+      $params['invoice-id'] = $event->data->object->id;
+      $params['amount'] = stripe_subscription_format_price($event->data->object->amount_due);
+      drupal_mail('stripe_subscription', 'payment_succeeded', $params['account']->mail, user_preferred_language($params['account']), $params);
+      break;
+
+    case 'invoice.payment_failed':
+      $uid = stripe_subscription_get_uid_from_customer_id($event->data->object->customer);
+      // Send payment failed email
+      $params = array();
+      $params['account'] = user_load($uid);
+      $params['stripe_customer'] = $event->data->object->customer;
+      $params['stripe_plan'] = $event->data->object->customer->subscription->plan;
+      $params['event'] = $event;
+      $params['invoice-id'] = $event->data->object->id;
+      $params['amount'] = stripe_subscription_format_price($event->data->object->amount_due);
+      drupal_mail('stripe_subscription', 'payment_failed', $params['account']->mail, user_preferred_language($params['account']), $params);
+      break;
+  }
+}
+
+/**
+ * Implements hook_context_plugins().
+ *
+ */
+function stripe_subscription_context_plugins() {
+  $plugins = array();
+  $plugins['stripe_subscription_context_reaction_pg'] = array(
+    'handler' => array(
+      'path' => drupal_get_path('module', 'stripe_subscription') .'/plugins',
+      'file' => 'stripe_subscription_context_reaction_pg.inc',
+      'class' => 'stripe_subscription_context_reaction_pg',
+      'parent' => 'context_reaction',
+    ),
+  );
+  return $plugins;
+}
+
+/**
+ * Implements hook_context_registry().
+ */
+function stripe_subscription_context_registry() {
+  return array(
+    'reactions' => array(
+      'plan_group' => array(
+        'title' => t('Stripe Plan Group'),
+        'description' => t('Restricts plans to a specific plan group.'),
+        'plugin' => 'stripe_subscription_context_reaction_pg',
+      ),
+    ),
+  );
+}
+
+/**
+ * Returns an array of plans.
+ *
+ * @$pgid Product group id, send 'all' to override restrictions.
+ */
+function _stripe_subscription_get_plans($pgid = NULL) {
+  static $stripe_plans;
+  if (isset($stripe_plans) && !isset($pgid)) {
+    return $stripe_plans;
+  }
+
+  stripe_initialize();
+  $response = NULL;
+  $stripe_plans = array();
+  try {
+    $response = Stripe_Plan::all();
+  }
+  catch (Exception $e) {
+    watchdog('stripe', 'Stripe_Charge::create Exception: %str', array('%str' => $e->getMessage()));
+    drupal_set_message($e->getMessage(), 'error');
+  }
+
+  if ($response->count > 0) {
+    $livemode = stripe_subscription_live() ? 1 : 0;
+    $query = db_select('stripe_plan_pg', 'ppg')
+      ->fields('ppg', array('plan_id', 'pgid', 'weight'))
+      ->condition('ppg.livemode', $livemode);
+    if (isset($pgid) && $pgid != 'all') {
+      $query->condition('ppg.pgid', $pgid);
+    }
+    $plans_pg = $query->execute()->fetchAllAssoc('plan_id');
+
+    foreach ($response->data as $plan) {
+      if (
+        // restrict results if a plan group id was set
+        ($pgid != 'all' && isset($pgid) && !isset($plans_pg[$plan->id])) ||
+        // otherwise, don't include anything but default or unassigned plans
+        ($pgid != 'all' && isset($plans_pg[$plan->id]) && $plans_pg[$plan->id]->pgid > 1)
+       ) {
+        continue;
+      }
+
+      $stripe_plans[$plan->id] = $plan;
+      $stripe_plans[$plan->id]->pgid = isset($plans_pg[$plan->id]) ? $plans_pg[$plan->id]->pgid : PLAN_GROUP_DEFAULT;
+      $stripe_plans[$plan->id]->weight = isset($plans_pg[$plan->id]) ? $plans_pg[$plan->id]->weight : 0;
+    }
+  }
+
+  return $stripe_plans;
+}
+
+/**
+ * Syncs the local table to associate Stripe customer_id with uid.
+ * The additional data is also stored as a sort of local cache of the customer record.
+ * Customer ID or the Strip customer object can be sent in.
+ * If $uid is NULL, it will attempt to load from the db.
+ */
+function stripe_subscription_sync_customer($customer, $uid = NULL) {
+  $customer_id = '';
+  if (is_object($customer)) {
+    $customer_id = $customer->id;
+  }
+  else {
+    $customer_id = $customer;
+  }
+  // Load the latest customer object because
+  // there's a possibility this was initiated by an old webhook.
+  try {
+    $customer = Stripe_Customer::retrieve($customer_id);
+  }
+  catch (Exception $e) {
+    return;
+  }
+
+  stripe_initialize();
+  $livemode = stripe_subscription_live() ? 1 : 0;
+  // Check if there's an existing user ID record
+  $existing_uid = db_query("SELECT uid FROM {stripe_customers} WHERE customer_id = :customer_id AND livemode = :livemode", array(':customer_id' => $customer_id, ':livemode' => $livemode))->fetchField();
+
+  // Make sure the existing user id matches the user id if one was sent in
+  if (isset($uid) && !empty($existing_uid) && $existing_uid != $uid) {
+    return;
+  }
+  // Make sure there is a user id for the query
+  if (!isset($uid) && empty($existing_uid)) {
+    return;
+  }
+  // Set uid if it was not sent in
+  if (!isset($uid)) {
+    $uid = $existing_uid;
+  }
+  // Only write record for authenticated users
+  if ($uid < 1) {
+    return;
+  }
+
+  $plan_id = NULL;
+  $current_period_start = NULL;
+  $current_period_end = NULL;
+
+  if (isset($customer->subscription)) {
+    if (isset($customer->subscription->plan)) {
+      $plan_id = $customer->subscription->plan->id;
+    }
+    $current_period_start = $customer->subscription->current_period_start;
+    $current_period_end = $customer->subscription->current_period_end;
+  }
+
+  $fields = array(
+    'uid' => $uid,
+    'customer_id' => $customer_id,
+    'livemode' => $livemode,
+    'account_balance' => $customer->account_balance,
+    'delinquent' => empty($customer->delinquent) ? 0 : 1,
+    'plan_id' => $plan_id,
+    'current_period_start' => $current_period_start,
+    'current_period_end' => $current_period_end,
+    'customer' => serialize($customer),
+    'created' => $customer->created,
+    'last_sync' => time()
+  );
+
+  if (empty($existing_uid)) {
+    db_insert('stripe_customers')
+      ->fields($fields)
+      ->execute();
+  }
+  else {
+    db_update('stripe_customers')
+      ->fields($fields)
+      ->condition('uid', $uid)
+      ->execute();
+  }
+}
+
+/**
+ * Returns a user id from a Stripe Customer ID
+ */
+function stripe_subscription_get_uid_from_customer_id($customer_id) {
+  $uid = db_query("SELECT uid FROM {stripe_customers} WHERE customer_id = :customer_id", array(':customer_id' => $customer_id))->fetchField();
+  if ($uid <= 0) {
+    return;
+  }
+  return $uid;
+}
+
+/**
+ * Sets roles based on subscription or unsubscribe
+ * @param $event String subscribe, unsubscribe
+ * @param $account Object user object
+ */
+function stripe_subscription_set_roles($event, $plan_id, $uid) {
+  $account = user_load($uid);
+  $role_data = stripe_subscription_get_subscription_roles($plan_id);
+  $edit = array('roles' => $account->roles);
+  foreach ($role_data[$event] as $action => $rids) {
+    switch ($action) {
+      case 'remove':
+        foreach ($rids as $rid) {
+          if (isset($edit['roles'][$rid])) {
+            unset($edit['roles'][$rid]);
+          }
+        }
+        break;
+      case 'add':
+        foreach ($rids as $rid) {
+          if (!isset($edit['roles'][$rid])) {
+            $edit['roles'][$rid] = $rid;
+          }
+        }
+        break;
+    }
+  }
+  user_save($account, $edit);
+  return $account;
+}
+
+/**
+ * Returns role ids for subscriptions
+ */
+function stripe_subscription_get_subscription_roles($plan_id) {
+  $livemode = stripe_subscription_live() ? 1 : 0;
+  $data = array('subscribe' => array('add' => array(), 'remove' => array()), 'unsubscribe' => array('add' => array(), 'remove' => array()));
+  $result = db_select('stripe_plan_roles', 's')
+    ->fields('s', array('rid', 'event', 'action'))
+    ->condition('s.plan_id', $plan_id)
+    ->condition('s.livemode', $livemode)
+    ->execute();
+  foreach ($result as $row) {
+    $data[$row->event][$row->action][] = $row->rid;
+  }
+  return $data;
+}
+
+/**
+ * Tests if site is in livemode
+ */
+function stripe_subscription_live() {
+  $status = variable_get('stripe_key_status', 'test');
+  return $status == 'live' ? TRUE : FALSE;
+}
+
+/**
+ * Return plan name and price.
+ */
+function stripe_subscription_plan_name($plan, $with_price = TRUE) {
+  $str = $plan->name;
+  if ($with_price) {
+    $str .= stripe_subscription_format_price($plan->amount) . '/';
+    $str .= $plan->interval_count > 1 ? $plan->interval_count . ' ' . ucfirst($plan->interval) . 's' : ucfirst($plan->interval);
+  }
+  return $str;
+}
+
+/**
+ * Returns a price format
+ */
+function stripe_subscription_format_price($amount) {
+  return ' $' . number_format($amount/100, 2);
+}
+
+/**
+ * Returns formatted description for reference in the stripe.com UI.
+ */
+function stripe_subscription_format_description($uid, $name, $mail) {
+  return $name . ' (' . $mail . ') uid: ' . $uid;
+}
+
+/**
+ * Implements hook_mail().
+ */
+function stripe_subscription_mail($key, &$message, $params) {
+  switch ($key) {
+    case 'subscription_created':
+      $message['subject'] = t('New Subscription');
+      $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_created', ''), $params);
+      break;
+
+    case 'subscription_updated':
+      $plan = 'Updated from ' . $params['previous_plan_name'] . ' to ' . $params['plan_name'];
+      $message['subject'] = t('Subscription Update');
+      $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_updated', ''), $params);
+      break;
+
+    case 'subscription_cancelled':
+      $message['subject'] = t('Subscription Cancelled');
+      $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_cancelled', ''), $params);
+      break;
+
+    case 'payment_succeeded':
+      $message['subject'] = t('Payment Received');
+      $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_pmt_success', ''), $params);
+      break;
+
+    case 'payment_failed':
+      $message['subject'] = t('Payment Failed');
+      $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_pmt_failed', ''), $params);
+      break;
+
+    case 'subscription_pmt_upcoming':
+      $message['subject'] = t('Upcoming Payment');
+      $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_pmt_upcoming', ''), $params);
+      break;
+  }
+}

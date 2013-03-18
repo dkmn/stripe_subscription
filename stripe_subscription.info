@@ -1,0 +1,7 @@
+name = "Stripe Subscription"
+description = "Subscription integration with Stripe."
+project = "stripe_subscription"
+version = "7.x-1.0"
+package = "Stripe"
+core = "7.x"
+dependencies[]=stripe
