@@ -284,7 +284,7 @@ function stripe_subscription_admin_plans($form) {
 function template_preprocess_stripe_subscription_admin_plans(&$variables) {
 
   $variables['action_links'] = drupal_render($variables['form']['action_links']);
-  $variables['plan_groups'] = $variables['form']['plan_groups']['#value'];
+  $variables['plan_groups'] = isset($variables['form']['plan_groups']) ? $variables['form']['plan_groups']['#value'] : array();
 
   foreach ($variables['plan_groups'] as $key => $value) {
     // Initialize an empty array for the plan group.
