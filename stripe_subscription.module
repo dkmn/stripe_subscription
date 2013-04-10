@@ -644,7 +644,7 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
   }
 
   // Pre-populate card fields
-  if (isset($customer) && is_object($customer->active_card)) {
+  if ( is_object($subscription) && isset($customer) && is_object($customer->active_card)) {
     //$form['card_number']['#default_value'] = $customer->active_card->type . '-****-' . $customer->active_card->last4;
     $exp_month = str_pad($customer->active_card->exp_month, 2, "0", STR_PAD_LEFT);
 
