@@ -569,9 +569,13 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
     }
   }
   else {
-    if (isset($form['#form_id']) && $form['#form_id'] != 'user_register_form') {
+    if (!isset($form['#form_id']) || (isset($form['#form_id']) && $form['#form_id'] != 'user_register_form')) {
+
+      $header = array('Status', 'Current Plan', 'Next Invoice');
+      $rows = array(array(t('Inactive'), t('--'), '--'));
+
       $form['subscription']['status'] = array(
-        '#markup' => '<p>' . t('Currently not subscribed') . '</p>'
+        '#markup' => theme('table', array('header' => $header, 'rows' => $rows))
       );
     }
   }
@@ -600,7 +604,7 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
   }
 
   // Only show the select if there's another plan available to change to.
-  if ($available_plan_count > 2) {
+  if ($available_plan_count > 1) {
     $form['subscription']['plan_id'] = array(
       '#type' => 'select',
       '#title' => t('%action Subscription Plan', array('%action' => $action)),

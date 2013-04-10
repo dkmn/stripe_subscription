@@ -329,7 +329,7 @@ function template_preprocess_stripe_subscription_admin_plans(&$variables) {
 function stripe_subscription_admin_plans_submit(&$form, &$form_state) {
   $livemode = stripe_subscription_live() ? 1 : 0;
   db_delete('stripe_plan_pg')
-    ->condition('livemode', "0")
+    ->condition('livemode', $livemode)
     ->execute();
   foreach ($form_state['values']['plans'] as $plan_id => $values) {
     db_insert('stripe_plan_pg')
