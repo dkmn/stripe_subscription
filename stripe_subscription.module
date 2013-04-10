@@ -41,6 +41,14 @@ function stripe_subscription_permission() {
   catch (Exception $e) {
     watchdog('stripe', 'Stripe_Plan::all Exception: %str', array('%str' => $e->getMessage()));
   }
+  $perms['manage own subscription'] = array(
+    'title' => 'Manage own subscription',
+    'description' => 'This user may manage their own subscription.'
+  );
+  $perms['update any subscription'] = array(
+    'title' => 'Manage any subscription',
+    'description' => 'This user may manage any subscription'
+  );
   return $perms;
 }
 
@@ -78,22 +86,22 @@ function stripe_subscription_menu() {
     'access arguments' => array('access content'),
     'file' => 'stripe_subscription.pages.inc',
   );
-  $items['user/%/edit/subscription'] = array(
+  $items['user/%/subscription'] = array(
     'title' => 'Subscription',
     'description' => 'Subscription form.',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('stripe_subscription_subscription_form', 1),
-    'access arguments' => array('access content'),
+    'access arguments' => array('manage own subscription'),
     'type' => MENU_LOCAL_TASK
   );
-  $items['user/%/edit/subscription/cancel'] = array(
+  $items['user/%/subscription/cancel'] = array(
     'title' => 'Cancel Subscription',
     'description' => 'Cancel subscription form.',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('stripe_subscription_subscription_cancel_form', 1),
-    'access arguments' => array('access content'),
+    'access arguments' => array('manage own subscription'),
     'file' => 'stripe_subscription.pages.inc',
-    'type' => MENU_LOCAL_TASK
+    'type' => MENU_CALLBACK
   );
   $items['admin/config/stripe/delete-test'] = array(
     'title' => 'Delete Test Data',
