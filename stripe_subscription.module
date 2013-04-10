@@ -45,7 +45,7 @@ function stripe_subscription_permission() {
     'title' => 'Manage own subscription',
     'description' => 'This user may manage their own subscription.'
   );
-  $perms['update any subscription'] = array(
+  $perms['manage any subscription'] = array(
     'title' => 'Manage any subscription',
     'description' => 'This user may manage any subscription'
   );
@@ -503,10 +503,16 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
     return $form;
   }
 
+  global $user;
+
   if (!isset($uid)) {
-    global $user;
     $uid = $user->uid;
   }
+
+  if ($user->uid != $uid && !user_access('manage any subscription')) {
+    drupal_access_denied();
+  }
+
   $account = user_load($uid);
 
   $stripe_form = stripe_form_default_items();
