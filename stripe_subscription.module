@@ -91,7 +91,8 @@ function stripe_subscription_menu() {
     'description' => 'Subscription form.',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('stripe_subscription_subscription_form', 1),
-    'access arguments' => array('manage own subscription'),
+    'access callback' => 'stripe_subscription_access',
+    'access arguments' => array(1),
     'type' => MENU_LOCAL_TASK
   );
   $items['user/%/subscription/cancel'] = array(
@@ -1056,4 +1057,11 @@ function stripe_subscription_mail($key, &$message, $params) {
       $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_pmt_upcoming', ''), $params);
       break;
   }
+}
+
+/**
+ * Access callback for subscription tab.
+ */
+function stripe_subscription_access($uid) {
+  return (($GLOBALS['user']->uid == $uid && user_access('manage own subscription')) || user_access('manage any subscription')) && $uid > 0;
 }
