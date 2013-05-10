@@ -246,7 +246,7 @@ function stripe_subscription_admin_plans($form) {
         '#markup' => $plan->currency,
       );
       $form['plans'][$key]['interval'] = array(
-        '#markup' => $plan->interval_count . ' ' . ucfirst($plan->interval), $plan->trial_period_days,
+        '#markup' => $plan->interval_count . ' ' . ucfirst($plan->interval),
       );
       $form['plans'][$key]['trial_period'] = array(
         '#markup' => $plan->trial_period_days,
