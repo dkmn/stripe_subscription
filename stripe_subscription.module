@@ -93,6 +93,7 @@ function stripe_subscription_menu() {
     'page arguments' => array('stripe_subscription_subscription_form', 1),
     'access callback' => 'stripe_subscription_access',
     'access arguments' => array(1),
+    'menu_name' => 'user-menu',
     'type' => MENU_LOCAL_TASK
   );
   $items['user/%/subscription/cancel'] = array(
@@ -211,7 +212,7 @@ function stripe_subscription_cron() {
   foreach ($result as $row) {
     try {
       // Confirm local data is still valid by retreiving the customer record
-      $customer = Stripe_Customer::retrieve($form_state['values']['customer_id']);
+      $customer = Stripe_Customer::retrieve($row->customer_id);
       if (isset($customer->subscription) &&
         $customer->subscription->current_period_end >= $start &&
         $customer->subscription->current_period_end < $end &&
