@@ -7,7 +7,23 @@
 /**
  * Subscription Settings
  */
-function stripe_subscription_admin_settings() {
+function stripe_subscription_admin_settings($form, &$form_state) {
+  $secret = stripe_get_key("secret");
+  $publishable = stripe_get_key("publishable");
+  $error = NULL;
+  if (empty($secret) || empty($publishable)) {
+    $error = t("Please configure the stripe keys below to see your acccount information");
+  }
+  elseif (!$library = libraries_load('stripe') || empty($library['loaded'])) {
+    $error = t("Failed to load Stripe library.");
+  }
+
+  if (isset($error)) {
+    $form['error_markup'] = array(
+      '#markup' => '<p>' . $error . '</p>'
+    );
+    return $form;
+  }
 
   $form['reg'] = array(
     '#type' => 'fieldset',
@@ -343,20 +359,30 @@ function stripe_subscription_admin_plans_submit(&$form, &$form_state) {
  * Add/Edit Plans
  */
 function stripe_subscription_admin_plans_edit($form, $form_state, $plan_id = NULL) {
-  $form = array();
   $plan = NULL;
-
-  if (isset($plan_id) && is_numeric($plan_id)) {
-    stripe_initialize();
+  $secret = stripe_get_key("secret");
+  $publishable = stripe_get_key("publishable");
+  $error = NULL;
+  if (empty($secret) || empty($publishable)) {
+    $error = t("Please configure the stripe keys below to see your acccount information");
+  }
+  elseif (!$library = libraries_load('stripe') || empty($library['loaded'])) {
+    $error = t("Failed to load Stripe library.");
+  }
+  if (isset($plan_id)) {
     try {
       $plan = Stripe_Plan::retrieve($plan_id);
       drupal_set_title('Edit Stripe Plan: ' . $plan->name);
       drupal_set_message('You may only update the name of a plan.', 'warning');
     }
     catch (Exception $e) {
-      drupal_set_message('Plan not found.', 'error');
-      drupal_goto('admin/config/stripe/plans');
+      $error = t('Plan not found.', 'error');
     }
+  }
+
+  if (isset($error)) {
+    drupal_set_message($error);
+    drupal_goto('admin/config/stripe/plans');
   }
 
   $form['existing'] = array(
@@ -465,7 +491,7 @@ function stripe_subscription_admin_plans_edit_validate($form, &$form_state) {
     form_set_error('amount', t('Amount must be a positive integer. (The price in cents)'));
   }
 
-  stripe_initialize();
+  libraries_load('stripe');
   $plan_data = array(
     'amount' => $form_state['values']['amount'],
     'interval' => $form_state['values']['interval'],
@@ -633,19 +659,30 @@ function stripe_subscription_admin_plan_group_remove_submit(&$form, &$form_state
  * Role assignment form
  */
 function stripe_subscription_admin_plans_roles($form, &$form_state, $plan_id) {
-  $form = array();
   $plan = NULL;
+  $secret = stripe_get_key("secret");
+  $publishable = stripe_get_key("publishable");
+  $error = NULL;
+  if (empty($secret) || empty($publishable)) {
+    $error = t("Please configure the stripe keys below to see your acccount information");
+  }
+  elseif (!$library = libraries_load('stripe') || empty($library['loaded'])) {
+    $error = t("Failed to load Stripe library.");
+  }
 
-  if (isset($plan_id) && $plan_id != 'add') {
-    stripe_initialize();
+  if (!isset($error)) {
     try {
       $plan = Stripe_Plan::retrieve($plan_id);
       drupal_set_title('Stripe Plan Roles: ' . $plan->name);
     }
     catch (Exception $e) {
-      drupal_set_message('Plan not found.', 'error');
-      drupal_goto('admin/config/stripe/plans');
+      $error = t('Pan not found.');
     }
+  }
+  if (isset($error)) {
+    drupal_set_message($error, 'error', 'error');
+    drupal_goto('admin/config/stripe/plans');
+    return;
   }
 
   $roles = user_roles(TRUE);

@@ -27,28 +27,29 @@ function stripe_subscription_init() {
  */
 function stripe_subscription_permission() {
   $perms = array();
-  stripe_initialize();
-  try {
-    $plans = Stripe_Plan::all();
+  if (($library = libraries_load('stripe')) && !empty($library['loaded'])) {
+    try {
+      $plans = Stripe_Plan::all();
 
-    foreach ($plans->data as $plan) {
-      $perms['subscribe: ' . $plan->id] = array(
-        'title' => 'Subscribe to: ' . $plan->name,
-        'description' => 'This user may subscribe to plan: ' . $plan->name
-      );
+      foreach ($plans->data as $plan) {
+        $perms['subscribe: ' . $plan->id] = array(
+          'title' => 'Subscribe to: ' . $plan->name,
+          'description' => 'This user may subscribe to plan: ' . $plan->name
+        );
+      }
     }
+    catch (Exception $e) {
+      watchdog('stripe', 'Stripe_Plan::all Exception: %str', array('%str' => $e->getMessage()));
+    }
+    $perms['manage own subscription'] = array(
+      'title' => 'Manage own subscription',
+      'description' => 'This user may manage their own subscription.'
+    );
+    $perms['manage any subscription'] = array(
+      'title' => 'Manage any subscription',
+      'description' => 'This user may manage any subscription'
+    );
   }
-  catch (Exception $e) {
-    watchdog('stripe', 'Stripe_Plan::all Exception: %str', array('%str' => $e->getMessage()));
-  }
-  $perms['manage own subscription'] = array(
-    'title' => 'Manage own subscription',
-    'description' => 'This user may manage their own subscription.'
-  );
-  $perms['manage any subscription'] = array(
-    'title' => 'Manage any subscription',
-    'description' => 'This user may manage any subscription'
-  );
   return $perms;
 }
 
@@ -195,7 +196,16 @@ function stripe_subscription_cron() {
     return;
   }
 
-  stripe_initialize();
+  $secret = stripe_get_key("secret");
+  $publishable = stripe_get_key("publishable");
+  $error = NULL;
+  if (empty($secret) || empty($publishable)) {
+    return;
+  }
+  elseif (!$library = libraries_load('stripe') || empty($library['loaded'])) {
+    return;
+  }
+
   $livemode = stripe_subscription_live() ? 1 : 0;
 
   $days_before = variable_get('stripe_subscribe_pmt_upcoming_days', '3');
@@ -256,7 +266,7 @@ function stripe_subscription_form_user_register_form_alter(&$form, &$form_state)
 function stripe_subscription_user_insert(&$edit, $account, $category) {
   if (isset($edit['stripe_customer'])) {
     stripe_subscription_sync_customer($edit['stripe_customer'], $edit['uid']);
-    stripe_initialize();
+    libraries_load('stripe');
     try {
       // Reset the customer description with the correct account data.
       $customer = Stripe_Customer::retrieve($edit['stripe_customer']->id);
@@ -498,15 +508,13 @@ function stripe_subscription_context_registry() {
  * Subscription form.
  */
 function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL) {
-  stripe_initialize();
-
+  libraries_load('stripe');
   $plan_list = _stripe_subscription_get_plans();
   if (count($plan_list) == 0) {
     return $form;
   }
 
   global $user;
-
   if (!isset($uid)) {
     $uid = $user->uid;
   }
@@ -710,8 +718,7 @@ function stripe_subscription_subscription_form_validate($form, &$form_state) {
     return;
   }
 
-  stripe_initialize();
-
+  libraries_load('stripe');
   $account = NULL;
   if ($form_state['values']['uid'] > 0) {
     $account = user_load($form_state['values']['uid']);
@@ -805,40 +812,41 @@ function _stripe_subscription_get_plans($pgid = NULL) {
     return $stripe_plans;
   }
 
-  stripe_initialize();
-  $response = NULL;
-  $stripe_plans = array();
-  try {
-    $response = Stripe_Plan::all();
-  }
-  catch (Exception $e) {
-    watchdog('stripe', 'Stripe_Charge::create Exception: %str', array('%str' => $e->getMessage()));
-    drupal_set_message($e->getMessage(), 'error');
-  }
-
-  if ($response->count > 0) {
-    $livemode = stripe_subscription_live() ? 1 : 0;
-    $query = db_select('stripe_plan_pg', 'ppg')
-      ->fields('ppg', array('plan_id', 'pgid', 'weight'))
-      ->condition('ppg.livemode', $livemode);
-    if (isset($pgid) && $pgid != 'all') {
-      $query->condition('ppg.pgid', $pgid);
+  if (($library = libraries_load('stripe')) && !empty($library['loaded'])) {
+    $response = NULL;
+    $stripe_plans = array();
+    try {
+      $response = Stripe_Plan::all();
     }
-    $plans_pg = $query->execute()->fetchAllAssoc('plan_id');
+    catch (Exception $e) {
+      watchdog('stripe', 'Stripe_Charge::create Exception: %str', array('%str' => $e->getMessage()));
+      drupal_set_message($e->getMessage(), 'error');
+    }
 
-    foreach ($response->data as $plan) {
-      if (
-        // restrict results if a plan group id was set
-        ($pgid != 'all' && isset($pgid) && !isset($plans_pg[$plan->id])) ||
-        // otherwise, don't include anything but default or unassigned plans
-        (!isset($pgid) && isset($plans_pg[$plan->id]) && $plans_pg[$plan->id]->pgid > 1)
-       ) {
-        continue;
+    if ($response->count > 0) {
+      $livemode = stripe_subscription_live() ? 1 : 0;
+      $query = db_select('stripe_plan_pg', 'ppg')
+        ->fields('ppg', array('plan_id', 'pgid', 'weight'))
+        ->condition('ppg.livemode', $livemode);
+      if (isset($pgid) && $pgid != 'all') {
+        $query->condition('ppg.pgid', $pgid);
       }
+      $plans_pg = $query->execute()->fetchAllAssoc('plan_id');
 
-      $stripe_plans[$plan->id] = $plan;
-      $stripe_plans[$plan->id]->pgid = isset($plans_pg[$plan->id]) ? $plans_pg[$plan->id]->pgid : PLAN_GROUP_DEFAULT;
-      $stripe_plans[$plan->id]->weight = isset($plans_pg[$plan->id]) ? $plans_pg[$plan->id]->weight : 0;
+      foreach ($response->data as $plan) {
+        if (
+          // restrict results if a plan group id was set
+          ($pgid != 'all' && isset($pgid) && !isset($plans_pg[$plan->id])) ||
+          // otherwise, don't include anything but default or unassigned plans
+          (!isset($pgid) && isset($plans_pg[$plan->id]) && $plans_pg[$plan->id]->pgid > 1)
+         ) {
+          continue;
+        }
+
+        $stripe_plans[$plan->id] = $plan;
+        $stripe_plans[$plan->id]->pgid = isset($plans_pg[$plan->id]) ? $plans_pg[$plan->id]->pgid : PLAN_GROUP_DEFAULT;
+        $stripe_plans[$plan->id]->weight = isset($plans_pg[$plan->id]) ? $plans_pg[$plan->id]->weight : 0;
+      }
     }
   }
 
@@ -868,7 +876,7 @@ function stripe_subscription_sync_customer($customer, $uid = NULL) {
     return;
   }
 
-  stripe_initialize();
+  libraries_load('stripe');
   $livemode = stripe_subscription_live() ? 1 : 0;
   // Check if there's an existing user ID record
   $existing_uid = db_query("SELECT uid FROM {stripe_customers} WHERE customer_id = :customer_id AND livemode = :livemode", array(':customer_id' => $customer_id, ':livemode' => $livemode))->fetchField();

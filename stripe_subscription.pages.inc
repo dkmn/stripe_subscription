@@ -8,7 +8,7 @@
  * Cancel Subscription Form
  */
 function stripe_subscription_subscription_cancel_form($form, &$form_state, $uid = NULL) {
-  stripe_initialize();
+  libraries_load('stripe');
   global $user;
   if (!isset($uid)) {
     $uid = $user->uid;
@@ -107,7 +107,7 @@ function stripe_subscription_subscription_cancel_form($form, &$form_state, $uid 
 }
 
 function stripe_subscription_subscription_cancel_form_submit($form, &$form_state) {
-  stripe_initialize();
+  libraries_load('stripe');
   try {
     $cu = Stripe_Customer::retrieve($form_state['values']['customer_id']);
     $cu->cancelSubscription();
