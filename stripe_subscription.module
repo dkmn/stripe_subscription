@@ -254,6 +254,7 @@ function stripe_subscription_cron() {
  */
 function stripe_subscription_form_user_register_form_alter(&$form, &$form_state) {
   require_once drupal_get_path('module', 'stripe_subscription') . '/stripe_subscription.pages.inc';
+  drupal_add_library('system', 'jquery.cookie');
   if (variable_get('stripe_subscription_reg_enable', 0) == 1 && user_is_anonymous()) {
     // Add the subscription form to the bottom of the registration form.
     $form = stripe_subscription_subscription_form($form, $form_state);
@@ -509,6 +510,7 @@ function stripe_subscription_context_registry() {
  */
 function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL) {
   libraries_load('stripe');
+  drupal_add_library('system', 'jquery.cookie');
   $plan_list = _stripe_subscription_get_plans();
   if (count($plan_list) == 0) {
     return $form;
