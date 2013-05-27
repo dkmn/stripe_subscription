@@ -254,7 +254,6 @@ function stripe_subscription_cron() {
  */
 function stripe_subscription_form_user_register_form_alter(&$form, &$form_state) {
   require_once drupal_get_path('module', 'stripe_subscription') . '/stripe_subscription.pages.inc';
-  drupal_add_library('system', 'jquery.cookie');
   if (variable_get('stripe_subscription_reg_enable', 0) == 1 && user_is_anonymous()) {
     // Add the subscription form to the bottom of the registration form.
     $form = stripe_subscription_subscription_form($form, $form_state);
@@ -510,7 +509,6 @@ function stripe_subscription_context_registry() {
  */
 function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL) {
   libraries_load('stripe');
-  drupal_add_library('system', 'jquery.cookie');
   $plan_list = _stripe_subscription_get_plans();
   if (count($plan_list) == 0) {
     return $form;
@@ -526,9 +524,6 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
   }
 
   $account = user_load($uid);
-
-  $stripe_form = stripe_form_default_items();
-  $form = array_merge($form, $stripe_form);
 
   // Test to see if there is a customer_id for this user already
   $livemode = stripe_subscription_live() ? 1 : 0;
@@ -570,7 +565,7 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
   );
 
   $new_subscription = TRUE;
-
+  $plan_options = array('_none' => t('--'));
   if (is_object($subscription)) {
     $new_subscription = FALSE;
 
@@ -592,6 +587,7 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
         '#type' => 'hidden',
         '#value' => $subscription->plan->name
       );
+      $plan_options['_none'] = t('Update card info only');
     }
   }
   else {
@@ -612,11 +608,17 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
   );
 
   $action =  is_object($subscription) && isset($subscription->status) ? 'Update Your' : 'Select a';
-  $plan_options = array('_none' => t('--'));
   if (isset($form['#form_id']) && $form['#form_id'] == 'user_register_form' && variable_get('stripe_subscription_reg_req', 0) == 1) {
     unset($plan_options['_none']);
   }
   $current_plan = is_object($subscription) && isset($subscription->plan) ? $subscription->plan->id : NULL;
+
+  // Set current card info
+  if ( is_object($subscription) && isset($customer) && is_object($customer->active_card)) {
+    //$form['card_number']['#default_value'] = $customer->active_card->type . '-****-' . $customer->active_card->last4;
+    $exp_month = str_pad($customer->active_card->exp_month, 2, "0", STR_PAD_LEFT);
+    $form['subscription']['info']['#markup'] = '<p><label>Card on file </label>' . $customer->active_card->type . ' XXXX-' . $customer->active_card->last4 . ' expires ' . $exp_month . '/' . $customer->active_card->exp_year . '</p>';
+  }
 
   $available_plan_count = 0;
   $plan_keys = array();
@@ -629,8 +631,7 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
     $plan_options[$plan->id] = stripe_subscription_plan_name($plan);
   }
 
-  // Only show the select if there's another plan available to change to.
-  if ($available_plan_count > 1) {
+  if ($available_plan_count > 0) {
     $form['subscription']['plan_id'] = array(
       '#type' => 'select',
       '#title' => t('%action Subscription Plan', array('%action' => $action)),
@@ -656,40 +657,11 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
     );
   }
 
-  if (!stripe_subscription_live()) {
-    $form['card_number']['#description'] = t('In Test Mode: Use 4242424242424242 ');
-    $form['card_cvc']['#description'] = t('In Test Mode: Use 123');
-  }
-
-  // Pre-populate card fields
-  if ( is_object($subscription) && isset($customer) && is_object($customer->active_card)) {
-    //$form['card_number']['#default_value'] = $customer->active_card->type . '-****-' . $customer->active_card->last4;
-    $exp_month = str_pad($customer->active_card->exp_month, 2, "0", STR_PAD_LEFT);
-
-
-    $form['card_expiry_month']['#default_value'] = $exp_month;
-    $form['card_expiry_year']['#default_value'] = $customer->active_card->exp_year;
-
-    //$active_card_description = t('Use the fields below to update your active card info.');
-
-    $form['subscription']['info']['#markup'] = '<p><label>Card on file </label>' . $customer->active_card->type . ' XXXX-' . $customer->active_card->last4 . ' expires ' . $exp_month . '/' . $customer->active_card->exp_year . '</p>';
-  }
-  else {
-    $form['card_expiry_month']['#default_value'] = '10';
-    $form['card_expiry_year']['#default_value'] = '2020';
-  }
-
-  //$form['active_card']['#description'] = $active_card_description;
-
-  // Move card fields inside fieldset
-  $form['subscription']['card_number'] = $form['card_number'];
-  unset($form['card_number']);
-  $form['subscription']['card_cvc'] = $form['card_cvc'];
-  unset($form['card_cvc']);
-  $form['subscription']['card_expiry_month'] = $form['card_expiry_month'];
-  unset($form['card_expiry_month']);
-  $form['subscription']['card_expiry_year'] = $form['card_expiry_year'];
-  unset($form['card_expiry_year']);
+  $form['subscription']['stripe'] = array(
+    '#type' => 'stripe_payment',
+    '#address' => FALSE,
+    '#weight' => 10,
+  );
 
   $submit_text = is_object($subscription) && isset($subscription->status) ? t('Update Subscription') : t('Create Subscription');
 
@@ -703,6 +675,7 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
       '#attributes' => array(
         'class' => array('submit-button'),
       ),
+      '#weight' => 99
     );
   }
 
@@ -731,7 +704,7 @@ function stripe_subscription_subscription_form_validate($form, &$form_state) {
     if (empty($form_state['values']['customer_id'])) {
       // Handling new customer/subscription for either an existing account,
       // or a new account submitted from user_register_form.
-      $description = '';
+      $description = NULL;
       if (isset($account)) {
         $description = stripe_subscription_format_description($account->uid, $account->name, $account->mail);
       }
@@ -740,7 +713,7 @@ function stripe_subscription_subscription_form_validate($form, &$form_state) {
       }
 
       $customer = Stripe_Customer::create(array(
-          'card' => $form_state['values']['stripe_token'],
+          'card' => $form_state['values']['stripe']['stripe_token'],
           'plan' => $form_state['values']['plan_id'],
           'email' => (isset($account) ? $account->mail : $form_state['values']['mail']),
           'description' => $description)
@@ -751,23 +724,26 @@ function stripe_subscription_subscription_form_validate($form, &$form_state) {
       $customer = Stripe_Customer::retrieve($form_state['values']['customer_id']);
 
       // Update customer info
-      if (isset($form_state['values']['stripe_token'])) {
-        $customer->email = $account->mail;
-        $customer->description = stripe_subscription_format_description($account->uid, $account->name, $account->mail);
-        $customer->card = $form_state['values']['stripe_token'];
-        $customer->save();
+      $customer->email = $account->mail;
+      $customer->description = stripe_subscription_format_description($account->uid, $account->name, $account->mail);
+      $customer->save();
+
+      if ($form_state['values']['plan_id'] == '_none' && !isset($customer->subscription->plan)) {
+        form_set_error('plan_id', 'Select a plan.');
+        return;
       }
 
-      // Update the subscription if it is set.
+      $plan_id = $form_state['values']['plan_id'] != '_none' ? $form_state['values']['plan_id'] : $customer->subscription->plan->id;
+      $customer->updateSubscription(array('prorate' => FALSE, 'plan' => $plan_id, 'card' => $form_state['values']['stripe']['stripe_token']));
+
       if ($form_state['values']['plan_id'] != '_none') {
-        $customer->updateSubscription(array('prorate' => FALSE, 'plan' => $form_state['values']['plan_id']));
         $params = array('account' => $account);
 
         $params['stripe_customer'] = $customer;
         $params['stripe_plan'] = $customer->subscription->plan;
 
         $params['previous_plan_name'] = isset($form_state['values']['previous_plan_name']) ? $form_state['values']['previous_plan_name'] : NULL;
-        $params['plan_changed'] = isset($params['plan_name']) && $params['plan_name'] == $params['previous_plan_name'] ? FALSE : TRUE;
+        $params['plan_changed'] = isset($params['stripe_plan']) && $params['stripe_plan'] == $params['previous_plan_name'] ? FALSE : TRUE;
 
         if ($form_state['values']['new_subscription']) {
           // Send new subscription confirmation
@@ -851,7 +827,6 @@ function _stripe_subscription_get_plans($pgid = NULL) {
       }
     }
   }
-
   return $stripe_plans;
 }
 
@@ -1043,7 +1018,7 @@ function stripe_subscription_mail($key, &$message, $params) {
       break;
 
     case 'subscription_updated':
-      $plan = 'Updated from ' . $params['previous_plan_name'] . ' to ' . $params['plan_name'];
+      $plan = 'Updated from ' . $params['previous_plan_name'] . ' to ' . $params['stripe_plan'];
       $message['subject'] = t('Subscription Update');
       $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_updated', ''), $params);
       break;
