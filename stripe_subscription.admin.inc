@@ -25,6 +25,18 @@ function stripe_subscription_admin_settings($form, &$form_state) {
     return $form;
   }
 
+  $form['general'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('General Settings')
+  );
+
+  $form['general']['stripe_subscription_coupons_enabled'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Enable Coupon Support'),
+    '#description' => t('When coupons are enabled, a textfield for a coupon code will be made available. Coupons are created in your Stripe control panel on stripe.com.'),
+    '#default_value' => variable_get('stripe_subscription_coupons_enabled', 0)
+  );
+
   $form['reg'] = array(
     '#type' => 'fieldset',
     '#title' => t('User Registration')
@@ -157,15 +169,6 @@ function stripe_subscription_admin_plans($form) {
   $form['#tree'] = TRUE;
 
   $plans = _stripe_subscription_get_plans('all');
-  /*
-  try {
-    $plans = Stripe_Plan::all();
-  }
-  catch (Exception $e) {
-    watchdog('stripe', 'Stripe_Charge::create Exception: %str', array('%str' => $e->getMessage()));
-    drupal_set_message($e->getMessage(), 'error');
-  }
-  */
 
   $items = array(
     l('Add a plan group', 'admin/config/stripe/plan-groups/add'),
@@ -175,26 +178,6 @@ function stripe_subscription_admin_plans($form) {
   $form['action_links'] = array(
     '#markup' => $action_links
   );
-
-  /*
-
-  $header = array(t('ID'), t('Name'), t('Amount'), t('Currency'), t('Interval'), t('Trial Period (days)'), '');
-  $rows = array();
-
-  if ($plans->count == 0) {
-    $form['intro_copy'] = array('#markup' => 'No plans found. Please go to the Stripe Dashboard on stripe.com to add some plans.');
-  }
-  else {
-    foreach ($plans->data as $plan) {
-      $edit = l('edit', 'admin/config/stripe/plans/' . $plan->id);
-      $roles = l('roles', 'admin/config/stripe/plans/' . $plan->id . '/roles');
-      $remove = l('remove', 'admin/config/stripe/plans/' . $plan->id . '/remove');
-      $rows[] = array($plan->id, $plan->name, number_format($plan->amount/100, 2), $plan->currency, $plan->interval_count . ' ' . ucfirst($plan->interval), $plan->trial_period_days, $edit . ' ' . $roles . ' ' . $remove);
-    }
-
-    $form['table'] = array('#markup' => theme('table', array('header' => $header, 'rows' => $rows)));
-  }
-  */
 
   if (count($plans) == 0) {
     $form['intro_copy'] = array('#markup' => 'No plans found.');
@@ -223,14 +206,7 @@ function stripe_subscription_admin_plans($form) {
       '#value' => $plan_groups,
     );
 
-    /*
-    $plans_pg = db_select('stripe_plan_pg', 'ppg')
-      ->fields('ppg', array('plan_id', 'pgid', 'weight'))
-      ->condition('ppg.livemode', $livemode)
-      ->execute()->fetchAllAssoc('plan_id');
-    */
     $weight_delta = round(count($plans) / 2);
-
     foreach ($plans as $plan) {
       $key = $plan->id;
 
