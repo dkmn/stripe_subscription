@@ -509,7 +509,12 @@ function stripe_subscription_context_registry() {
  */
 function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL) {
   libraries_load('stripe');
-  $plan_list = _stripe_subscription_get_plans();
+
+  if (!isset($form_state['storage']['plan_list'] )) {
+    $form_state['storage']['plan_list'] = _stripe_subscription_get_plans();
+  }
+  $plan_list = $form_state['storage']['plan_list'];
+
   if (count($plan_list) == 0) {
     return $form;
   }
@@ -636,11 +641,10 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
       '#type' => 'select',
       '#title' => t('%action Subscription Plan', array('%action' => $action)),
       '#options' => $plan_options,
-      '#default_value' => !isset($current_plan) ? $plan_keys[1] : NULL
+      '#default_value' => !isset($current_plan) ? $plan_keys[0] : NULL
     );
   }
   elseif ($available_plan_count == 1) {
-    //if (isset($form['#form_id']) && $form['#form_id'] == 'user_register_form') {
     $form['subscription']['sub_title'] = array(
       '#markup' => '<p>' . $plan_options[$plan_keys[0]] . '</p>'
     );
@@ -648,7 +652,6 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
       '#type' => 'hidden',
       '#value' => $plan_keys[0]
     );
-    //}
   }
   else {
     $form['subscription']['plan_id'] = array(
@@ -660,13 +663,23 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
   $form['subscription']['stripe'] = array(
     '#type' => 'stripe_payment',
     '#address' => FALSE,
+    '#coupon' => variable_get('stripe_subscription_coupons_enabled', 0) == 1 ? TRUE : FALSE,
     '#weight' => 10,
   );
+
+  if ($new_subscription && variable_get('stripe_subscription_coupons_enabled', 0) == 1) {
+    $form['subscription']['coupon'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Coupon Code'),
+      '#size' => 20,
+      '#weight' => 11,
+    );
+  }
 
   $submit_text = is_object($subscription) && isset($subscription->status) ? t('Update Subscription') : t('Create Subscription');
 
   if (isset($form['#form_id']) && $form['#form_id'] == 'user_register_form') {
-    $form['#validate'][] = 'stripe_subscription_subscription_form_validate';
+    $form['#submit'][] = 'stripe_subscription_subscription_form_submit';
   }
   else {
     $form['subscription']['card_submit'] = array(
@@ -683,22 +696,18 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
 }
 
 /**
- * Validation handler for the stripe_subscription_subscription_form and user_register_form.
+ * Submit handler for the stripe_subscription_subscription_form.
  * @see stripe_subscription_subscription_form
- * @see stripe_subscription_form_user_register_form_alter
  */
-function stripe_subscription_subscription_form_validate($form, &$form_state) {
-  // Don't process again if the stripe customer has already been set.
-  if (isset($form_state['values']['stripe_customer'])) {
-    return;
-  }
-
+function stripe_subscription_subscription_form_submit($form, &$form_state) {
+  $customer = NULL;
   libraries_load('stripe');
   $account = NULL;
   if ($form_state['values']['uid'] > 0) {
     $account = user_load($form_state['values']['uid']);
   }
 
+  $coupon = variable_get('stripe_subscription_coupons_enabled', 0) == 1 && !empty($form_state['values']['coupon']) ? $form_state['values']['coupon'] : NULL;
   try {
     // Add customer record
     if (empty($form_state['values']['customer_id'])) {
@@ -711,13 +720,16 @@ function stripe_subscription_subscription_form_validate($form, &$form_state) {
       else {
         $description = stripe_subscription_format_description($form_state['values']['uid'], $form_state['values']['name'], $form_state['values']['mail']);
       }
-
-      $customer = Stripe_Customer::create(array(
-          'card' => $form_state['values']['stripe']['stripe_token'],
-          'plan' => $form_state['values']['plan_id'],
-          'email' => (isset($account) ? $account->mail : $form_state['values']['mail']),
-          'description' => $description)
+      $params = array(
+        'card' => $form_state['values']['stripe']['stripe_token'],
+        'plan' => $form_state['values']['plan_id'],
+        'email' => (isset($account) ? $account->mail : $form_state['values']['mail']),
+        'description' => $description
       );
+      if (isset($coupon)) {
+        $params['coupon'] = $coupon;
+      }
+      $customer = Stripe_Customer::create($params);
     }
     // Update customer record
     else {
@@ -734,7 +746,15 @@ function stripe_subscription_subscription_form_validate($form, &$form_state) {
       }
 
       $plan_id = $form_state['values']['plan_id'] != '_none' ? $form_state['values']['plan_id'] : $customer->subscription->plan->id;
-      $customer->updateSubscription(array('prorate' => FALSE, 'plan' => $plan_id, 'card' => $form_state['values']['stripe']['stripe_token']));
+      $params = array(
+        'prorate' => FALSE,
+        'plan' => $plan_id,
+        'card' => $form_state['values']['stripe']['stripe_token'],
+      );
+      if (isset($coupon)) {
+        $params['coupon'] = $coupon;
+      }
+      $customer->updateSubscription($params);
 
       if ($form_state['values']['plan_id'] != '_none') {
         $params = array('account' => $account);
@@ -755,27 +775,25 @@ function stripe_subscription_subscription_form_validate($form, &$form_state) {
             drupal_mail('stripe_subscription', 'subscription_updated', $params['account']->mail, user_preferred_language($params['account']), $params);
           }
         }
-
       }
     }
   }
   catch (Exception $e) {
-    form_set_error('', 'Unable to process card.');
-    watchdog('stripe', 'Stripe_Customer::create Exception: %str', array('%str' => $e->getMessage()));
-    if (user_access('administer stripe')) {
-      drupal_set_message(t('Stripe_Customer::create: %str', array('%str' => $e->getMessage())), 'error');
+    if (strpos($e->getMessage(), 'No such coupon') !== FALSE) {
+      form_set_error('coupon', $e->getMessage());
     }
+    else {
+      form_set_error('', 'Unable to process card.');
+      watchdog('stripe', 'Stripe_Customer::create Exception: %str', array('%str' => $e->getMessage()));
+      if (user_access('administer stripe')) {
+        drupal_set_message(t('Stripe_Customer::create: %str', array('%str' => $e->getMessage())), 'error');
+      }
+    }
+    $form_state['reload'] = TRUE;
     return;
   }
-  $form_state['values']['stripe_customer'] = $customer;
-}
 
-/**
- * Submit handler for the stripe_subscription_subscription_form.
- * @see stripe_subscription_subscription_form
- */
-function stripe_subscription_subscription_form_submit($form, &$form_state) {
-  stripe_subscription_sync_customer($form_state['values']['stripe_customer'], $form_state['values']['uid']);
+  stripe_subscription_sync_customer($customer, $form_state['values']['uid']);
   drupal_set_message('Your subscription has been updated. You will receive email conformation shortly.');
 }
 
@@ -821,7 +839,20 @@ function _stripe_subscription_get_plans($pgid = NULL) {
           continue;
         }
 
-        $stripe_plans[$plan->id] = $plan;
+        // Remove Stripe out of this because of issues
+        // with caching the object in form state storage
+        $p = new stdClass();
+        $p->id = $plan->id;
+        $p->interval = $plan->interval;
+        $p->name = $plan->name;
+        $p->amount = $plan->amount;
+        $p->currency = $plan->currency;
+        $p->object = $plan->object;
+        $p->livemode = $plan->livemode;
+        $p->interval_count = $plan->interval_count;
+        $p->trial_period_days = $plan->trial_period_days;
+
+        $stripe_plans[$plan->id] = $p;
         $stripe_plans[$plan->id]->pgid = isset($plans_pg[$plan->id]) ? $plans_pg[$plan->id]->pgid : PLAN_GROUP_DEFAULT;
         $stripe_plans[$plan->id]->weight = isset($plans_pg[$plan->id]) ? $plans_pg[$plan->id]->weight : 0;
       }
