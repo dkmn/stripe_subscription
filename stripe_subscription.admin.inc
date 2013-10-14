@@ -345,14 +345,15 @@ function stripe_subscription_admin_plans_edit($form, $form_state, $plan_id = NUL
   elseif (!$library = libraries_load('stripe') || empty($library['loaded'])) {
     $error = t("Failed to load Stripe library.");
   }
-  if (isset($plan_id)) {
+
+  if (isset($plan_id) && $plan_id != 'add') {
     try {
       $plan = Stripe_Plan::retrieve($plan_id);
       drupal_set_title('Edit Stripe Plan: ' . $plan->name);
       drupal_set_message('You may only update the name of a plan.', 'warning');
     }
     catch (Exception $e) {
-      $error = t('Plan not found.', 'error');
+      $error = t('Plan not found.');
     }
   }
 
