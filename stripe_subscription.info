@@ -5,3 +5,10 @@ version = "7.x-1.0"
 package = "Stripe"
 core = "7.x"
 dependencies[]=stripe
+
+; Information added by drupal.org packaging script on 2013-10-15
+version = "7.x-1.x-dev"
+core = "7.x"
+project = "stripe_subscription"
+datestamp = "1381802306"
+
