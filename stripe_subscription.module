@@ -19,6 +19,8 @@ function stripe_subscription_init() {
     if ($plugin) {
       $plugin->execute();
     }
+    Stripe::setApiVersion('2012-09-24');
+
   }
 }
 
@@ -198,7 +200,9 @@ function stripe_subscription_cron() {
 
   $secret = stripe_get_key("secret");
   $publishable = stripe_get_key("publishable");
-  $error = NULL;
+  Stripe::setApiVersion('2012-09-24');
+
+    $error = NULL;
   if (empty($secret) || empty($publishable)) {
     return;
   }
@@ -265,6 +269,7 @@ function stripe_subscription_form_user_register_form_alter(&$form, &$form_state)
  */
 function stripe_subscription_user_insert(&$edit, $account, $category) {
   if (isset($edit['stripe_customer'])) {
+      Stripe::setApiVersion('2012-09-24');
     stripe_subscription_sync_customer($edit['stripe_customer'], $edit['uid']);
     libraries_load('stripe');
     try {
@@ -422,6 +427,13 @@ function stripe_subscription_stripe_webhook($event) {
       $uid = stripe_subscription_get_uid_from_customer_id($event->data->object->customer);
       stripe_subscription_set_roles('subscribe', $event->data->object->plan->id, $uid);
       stripe_subscription_sync_customer($event->data->object->customer);
+      // Send subscription created confirmation
+      $params = array();
+      $params['account'] = user_load($uid);
+      $params['stripe_customer'] = $event->data->object->customer;
+      $params['event'] = $event;
+      $params['stripe_plan'] = $event->data->object->plan;
+      drupal_mail('stripe_subscription', 'subscription_created', $params['account']->mail, user_preferred_language($params['account']), $params);
       break;
 
     case 'customer.subscription.updated':
@@ -429,6 +441,13 @@ function stripe_subscription_stripe_webhook($event) {
       stripe_subscription_set_roles('unsubscribe', $event->data->previous_attributes->plan->id, $uid);
       stripe_subscription_set_roles('subscribe', $event->data->object->plan->id, $uid);
       stripe_subscription_sync_customer($event->data->object->customer);
+      // Send subscription updated confirmation
+      $params = array();
+      $params['account'] = user_load($uid);
+      $params['stripe_customer'] = $event->data->object->customer;
+      $params['event'] = $event;
+      $params['stripe_plan'] = $event->data->object->plan;
+      drupal_mail('stripe_subscription', 'subscription_updated', $params['account']->mail, user_preferred_language($params['account']), $params);
       break;
 
     case 'customer.subscription.deleted':
@@ -868,6 +887,7 @@ function _stripe_subscription_get_plans($pgid = NULL) {
  * If $uid is NULL, it will attempt to load from the db.
  */
 function stripe_subscription_sync_customer($customer, $uid = NULL) {
+  Stripe::setApiVersion('2012-09-24');
   $customer_id = '';
   if (is_object($customer)) {
     $customer_id = $customer->id;
