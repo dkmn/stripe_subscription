@@ -867,12 +867,14 @@ function stripe_subscription_subscription_form_submit($form, &$form_state) {
 
         if ($form_state['values']['new_subscription']) {
           // Send new subscription confirmation
-          drupal_mail('stripe_subscription', 'subscription_created', $params['account']->mail, user_preferred_language($params['account']), $params);
+          // TODO: DKMN 20131119 Commenting out as this as it is a request for a subscription creation, not a confirmation within Stripe
+          //drupal_mail('stripe_subscription', 'subscription_created', $params['account']->mail, user_preferred_language($params['account']), $params);
         }
         else {
           // Send subscription updated confirmation for plan change
           if ($params['plan_changed']) {
-            drupal_mail('stripe_subscription', 'subscription_updated', $params['account']->mail, user_preferred_language($params['account']), $params);
+            // TODO: DKMN 20131119 Commenting out as this as it is a request for a subscription update, not a confirmation within Stripe
+            //drupal_mail('stripe_subscription', 'subscription_updated', $params['account']->mail, user_preferred_language($params['account']), $params);
           }
         }
       }
