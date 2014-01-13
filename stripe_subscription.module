@@ -410,17 +410,26 @@ function stripe_subscription_stripe_webhook($event) {
   $livemode = stripe_subscription_live() ? 1 : 0;
   switch ($event->type) {
     case 'customer.created':
-      stripe_subscription_sync_customer($event->data->object->customer);
+        watchdog('stripe_subscription', 'Check Stripe Library Singleton API version', NULL, WATCHDOG_DEBUG);
+        watchdog('stripe_subscription', Stripe::getApiVersion(), NULL, WATCHDOG_DEBUG);
+        watchdog('stripe_subscription', $event->data->object, NULL, WATCHDOG_DEBUG);
+        stripe_subscription_sync_customer($event->data->object);
       break;
 
     case 'customer.updated':
-      stripe_subscription_sync_customer($event->data->object->customer);
+        watchdog('stripe_subscription', 'Check Stripe Library Singleton API version', NULL, WATCHDOG_DEBUG);
+        watchdog('stripe_subscription', Stripe::getApiVersion(), NULL, WATCHDOG_DEBUG);
+        watchdog('stripe_subscription', $event->data->object, NULL, WATCHDOG_DEBUG);
+        stripe_subscription_sync_customer($event->data->object);
       break;
 
     case 'customer.deleted':
-      db_delete('stripe_customers')
+        watchdog('stripe_subscription', 'Check Stripe Library Singleton API version', NULL, WATCHDOG_DEBUG);
+        watchdog('stripe_subscription', Stripe::getApiVersion(), NULL, WATCHDOG_DEBUG);
+        watchdog('stripe_subscription', $event->data->object, NULL, WATCHDOG_DEBUG);
+        db_delete('stripe_customers')
         ->condition('livemode', $livemode)
-        ->condition('customer_id', $event->data->object->customer->id)
+        ->condition('customer_id', $event->data->object)
         ->execute();
       break;
 
@@ -428,19 +437,66 @@ function stripe_subscription_stripe_webhook($event) {
       $uid = stripe_subscription_get_uid_from_customer_id($event->data->object->customer);
       stripe_subscription_set_roles('subscribe', $event->data->object->plan->id, $uid);
       stripe_subscription_sync_customer($event->data->object->customer);
+      // Send subscription created confirmation
+      $params = array();
+      $params['account'] = user_load($uid);
+      $params['stripe_customer'] = $event->data->object->customer;
+      $params['event'] = $event;
+      $params['stripe_plan'] = $event->data->object->plan;
+      watchdog('stripe_subscription', 'Check Stripe Library Singleton API version', NULL, WATCHDOG_DEBUG);
+      watchdog('stripe_subscription', Stripe::getApiVersion(), NULL, WATCHDOG_DEBUG);
+      watchdog('stripe_subscription', $params['stripe_plan'], NULL, WATCHDOG_DEBUG);
+      drupal_mail('stripe_subscription', 'subscription_created', $params['account']->mail, user_preferred_language($params['account']), $params);
       break;
 
     case 'customer.subscription.updated':
+      //TODO FIX parse errors, I think primarily if there are not prior plans
+      //DEBUG put out API version
+      watchdog('stripe_subscription', 'Check Stripe Library Singleton API version', NULL, WATCHDOG_DEBUG);
+      watchdog('stripe_subscription', Stripe::getApiVersion(), NULL, WATCHDOG_DEBUG);
+
       $uid = stripe_subscription_get_uid_from_customer_id($event->data->object->customer);
+      watchdog('stripe_subscription', 'new plan id:' . $event->data->object->plan->id, NULL, WATCHDOG_DEBUG);
+      //Prior subscription ID not passed in this event; do not try to unsubscribe presumed prior role... see later
+
+      // Send subscription updated confirmation
+      $params = array();
+      $params['account'] = user_load($uid);
+      // Get existing plan_id from local customer table, since no longer sent in the customer.subscription.updated event
+      // $previous_plan_id = db_query("SELECT plan_id FROM {stripe_customers} WHERE customer_id = :customer_id AND livemode = :livemode", array(':customer_id' => $event->data->object->customer, ':livemode' => $livemode))->fetchField();
+      $previous_plan_id = $event->data->previous_attributes->plan->id;
+      if(is_null($previous_plan_id)){
+        watchdog('stripe_subscription', 'previous plan id not determined', NULL, WATCHDOG_DEBUG);
+
+      } else {
+        watchdog('stripe_subscription', 'previous plan id:' . $previous_plan_id, NULL, WATCHDOG_DEBUG);
+      }
+
+      $params['previous_plan_id'] = $previous_plan_id;
+      $params['stripe_customer'] = $event->data->object->customer;
+      $params['event'] = $event;
+      $params['stripe_plan'] = $event->data->object->plan;
+
+      // $params['previous_plan_name'] = Stripe_Plan::retrieve($previous_plan_id)->name;
+      $params['previous_plan_name'] = $event->data->previous_attributes->plan->name;
+      watchdog('stripe_subscription', 'previous plan name:' . $params['previous_plan_name'], NULL, WATCHDOG_DEBUG);
+
+      // Now have the id, unsubscribe and subscribe the relevant roles
+      // unsubscribe first in case they are the same; do not use conditional logic since there might be multiple roles
+      // stripe_subscription_set_roles('unsubscribe', $previous_plan_id, $uid);
       stripe_subscription_set_roles('unsubscribe', $event->data->previous_attributes->plan->id, $uid);
       stripe_subscription_set_roles('subscribe', $event->data->object->plan->id, $uid);
+
+      // Sync customer object and table
       stripe_subscription_sync_customer($event->data->object->customer);
+      // Send mail if configured.
+      drupal_mail('stripe_subscription', 'subscription_updated', $params['account']->mail, user_preferred_language($params['account']), $params);
       break;
 
     case 'customer.subscription.deleted':
       $uid = stripe_subscription_get_uid_from_customer_id($event->data->object->customer);
       stripe_subscription_set_roles('unsubscribe', $event->data->object->plan->id, $uid);
-      stripe_subscription_sync_customer($event->data->object->customer);
+      stripe_subscription_sync_customer($event->data->object->customer);  // using Stripe user ID
       // Send subscription cancelled confirmation
       $params = array();
       $params['account'] = user_load($uid);
@@ -452,11 +508,22 @@ function stripe_subscription_stripe_webhook($event) {
 
     case 'invoice.payment_succeeded':
       $uid = stripe_subscription_get_uid_from_customer_id($event->data->object->customer);
+      watchdog('stripe_subscription', 'Retrieved local uid: ' . $uid . ' for Stripe UID ' . $event->data->object->customer, NULL, WATCHDOG_DEBUG);
+      stripe_subscription_sync_customer($uid);
+
       // Send invoice paid email
       $params = array();
       $params['account'] = user_load($uid);
       $params['stripe_customer'] = $event->data->object->customer;
-      $params['stripe_plan'] = $event->data->object->customer->subscription->plan;
+      //Stripe API changed, this data is now passed as an array of "list items"... so iterate:
+      foreach($event->data->object->lines->data as $list_item){
+          if($list_item->type == 'subscription'){
+              $params['stripe_plan'] = $list_item->plan;
+          }
+      }
+      watchdog('stripe_subscription', 'Check Stripe Library Singleton API version', NULL, WATCHDOG_DEBUG);
+      watchdog('stripe_subscription', Stripe::getApiVersion(), NULL, WATCHDOG_DEBUG);
+      watchdog('stripe_subscription', 'invoice.payment_succeeded' . $params['stripe_plan'], NULL, WATCHDOG_DEBUG);
       $params['event'] = $event;
       $params['invoice-id'] = $event->data->object->id;
       $params['amount'] = stripe_subscription_format_price($event->data->object->amount_due);
@@ -464,17 +531,37 @@ function stripe_subscription_stripe_webhook($event) {
       break;
 
     case 'invoice.payment_failed':
+      //TODO DKMN make sure this case works (hard to test with webhooks)... found: https://support.stripe.com/questions/test-failed-invoice-payment
       $uid = stripe_subscription_get_uid_from_customer_id($event->data->object->customer);
+      watchdog('stripe_subscription', 'Retrieved local uid: ' . $uid . ' for Stripe UID ' . $event->data->object->customer, NULL, WATCHDOG_DEBUG);
+      stripe_subscription_sync_customer($uid);
+
       // Send payment failed email
       $params = array();
       $params['account'] = user_load($uid);
       $params['stripe_customer'] = $event->data->object->customer;
-      $params['stripe_plan'] = $event->data->object->customer->subscription->plan;
+      //Stripe API changed, this data is now passed as an array of "list items"... so iterate:
+      foreach($event->data->object->lines->data as $list_item){
+          if($list_item->type == 'subscription'){
+              $params['stripe_plan'] = $list_item->plan;
+          }
+      }
+      watchdog('stripe_subscription', 'Check Stripe Library Singleton API version' . Stripe::getApiVersion(), NULL, WATCHDOG_DEBUG);
+      watchdog('stripe_subscription', $params['stripe_plan'], NULL, WATCHDOG_DEBUG);
+      watchdog('stripe_subscription', 'invoice.payment_failed' . $params['stripe_plan'], NULL, WATCHDOG_DEBUG);
       $params['event'] = $event;
       $params['invoice-id'] = $event->data->object->id;
       $params['amount'] = stripe_subscription_format_price($event->data->object->amount_due);
       drupal_mail('stripe_subscription', 'payment_failed', $params['account']->mail, user_preferred_language($params['account']), $params);
       break;
+/**
+    case 'charge.failed':
+      //TODO DKMN make sure this case works (hard to test with webhooks)
+      $uid = stripe_subscription_get_uid_from_customer_id($event->data->object->customer);
+      watchdog('stripe_subscription', 'invoice.charge_failed for customer ' . $uid, NULL, WATCHDOG_DEBUG);
+      // TODO next... test WITH REAL DATA ***
+      break;
+**/
   }
 }
 
