@@ -54,6 +54,12 @@ function stripe_subscription_admin_settings($form, &$form_state) {
     '#default_value' => variable_get('stripe_subscription_reg_req', 0),
   );
 
+  $form['reg']['stripe_subscription_activ_on_payment'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Attempt to activate user when upon receiving payment webhook (invoice.payment_succeeded)'),
+    '#default_value' => variable_get('stripe_subscription_activ_on_payment', 0),
+  );
+
   $form['grade'] = array(
     '#type' => 'fieldset',
     '#title' => t('Upgrade/Downgrade Behavior (Experimental, do not use!)'),

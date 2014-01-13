@@ -527,6 +527,13 @@ function stripe_subscription_stripe_webhook($event) {
       $params['event'] = $event;
       $params['invoice-id'] = $event->data->object->id;
       $params['amount'] = stripe_subscription_format_price($event->data->object->amount_due);
+      // If set to do so, attempt to activate user on successful payment (prevents need for Admin review if payment is good)
+      if(variable_get('stripe_subscription_activ_on_payment', 0)){
+        //User object already queried
+        watchdog('stripe_subscription', 'Attempting to set user active, UID:' . $params['account']->uid , NULL, WATCHDOG_DEBUG);
+        $params['account']->status = 1; // Set regardless of current value; if already activated, no harm but save processing
+        user_save($params['account']);
+      }
       drupal_mail('stripe_subscription', 'payment_succeeded', $params['account']->mail, user_preferred_language($params['account']), $params);
       break;
 
