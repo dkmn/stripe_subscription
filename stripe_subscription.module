@@ -854,6 +854,9 @@ function stripe_subscription_subscription_form_submit($form, &$form_state) {
       if (isset($coupon)) {
         $params['coupon'] = $coupon;
       }
+      //TODO FIX DKK Troubleshooting, force short expiration to test invoice.payment_failed
+      //$params['trial_end'] = time() + 600; // 10 minutes ahead TODO remove DKK
+      //watchdog('stripe_subscription', 'Trial end time: ' .  $params['trial_end'], NULL, WATCHDOG_DEBUG);
       $customer->updateSubscription($params);
 
       if ($form_state['values']['plan_id'] != '_none') {
