@@ -14,7 +14,13 @@ define('PLAN_GROUP_DEFAULT', 1);
  * Implements hook_init().
  */
 function stripe_subscription_init() {
-  if (module_exists('context')) {
+    // Initial load of Stripe library and call to singleton Stripe class to set preferred (at this time) ApiVersion on
+    // requests. This controls for alteration in the structure of Stripe JSON events over time, and should be
+    // revised as the parsing code is updated.  See: https://stripe.com/docs/upgrades for more information.
+    libraries_load('stripe');
+    Stripe::setApiVersion('2013-10-29');
+
+    if (module_exists('context')) {
     $plugin = context_get_plugin('reaction', 'plan_group');
     if ($plugin) {
       $plugin->execute();
