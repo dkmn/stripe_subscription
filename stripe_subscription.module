@@ -736,15 +736,7 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
     $plan_options[$plan->id] = stripe_subscription_plan_name($plan);
   }
 
-  if ($available_plan_count > 0) {
-    $form['subscription']['plan_id'] = array(
-      '#type' => 'select',
-      '#title' => t('%action Subscription Plan', array('%action' => $action)),
-      '#options' => $plan_options,
-      '#default_value' => !isset($current_plan) ? $plan_keys[0] : NULL
-    );
-  }
-  elseif ($available_plan_count == 1) {
+  if ($available_plan_count == 1) {
     $form['subscription']['sub_title'] = array(
       '#markup' => '<p>' . $plan_options[$plan_keys[0]] . '</p>'
     );
@@ -753,6 +745,15 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
       '#value' => $plan_keys[0]
     );
   }
+  elseif ($available_plan_count > 0) {
+    $form['subscription']['plan_id'] = array(
+      '#type' => 'select',
+      '#title' => t('%action Subscription Plan', array('%action' => $action)),
+      '#options' => $plan_options,
+      '#default_value' => !isset($current_plan) ? $plan_keys[0] : NULL
+    );
+  }
+  
   else {
     $form['subscription']['plan_id'] = array(
       '#type' => 'hidden',
