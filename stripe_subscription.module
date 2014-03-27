@@ -691,6 +691,9 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
       '#weight' => 99
     );
   }
+  if(isset($_GET['plan_id'])){
+    $form['subscription']['plan_id']['#default_value'] = $_GET['plan_id'];
+  }
 
   return $form;
 }
