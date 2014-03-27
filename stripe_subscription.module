@@ -1148,34 +1148,53 @@ function stripe_subscription_format_description($uid, $name, $mail) {
  * Implements hook_mail().
  */
 function stripe_subscription_mail($key, &$message, $params) {
+
   switch ($key) {
     case 'subscription_created':
+      if(variable_get('stripe_subscribe_notify_created') == ''){
+        $message['send'] = FALSE;
+      }
       $message['subject'] = t('New Subscription');
       $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_created', ''), $params);
       break;
 
     case 'subscription_updated':
-      $plan = 'Updated from ' . $params['previous_plan_name'] . ' to ' . $params['stripe_plan'];
+      //$plan = 'Updated from ' . $params['previous_plan_name'] . ' to ' . $params['stripe_plan'];
+      if(variable_get('stripe_subscribe_notify_updated') == ''){
+        $message['send'] = FALSE;
+      }
       $message['subject'] = t('Subscription Update');
       $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_updated', ''), $params);
       break;
 
     case 'subscription_cancelled':
+      if(variable_get('stripe_subscribe_notify_cancelled') == ''){
+        $message['send'] = FALSE;
+      }
       $message['subject'] = t('Subscription Cancelled');
       $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_cancelled', ''), $params);
       break;
 
     case 'payment_succeeded':
+      if(variable_get('stripe_subscribe_notify_pmt_success') == ''){
+        $message['send'] = FALSE;
+      }
       $message['subject'] = t('Payment Received');
       $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_pmt_success', ''), $params);
       break;
 
     case 'payment_failed':
+      if(variable_get('stripe_subscribe_notify_pmt_failed') == ''){
+        $message['send'] = FALSE;
+      }
       $message['subject'] = t('Payment Failed');
       $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_pmt_failed', ''), $params);
       break;
 
     case 'subscription_pmt_upcoming':
+      if(variable_get('stripe_subscribe_notify_pmt_upcoming') == ''){
+        $message['send'] = FALSE;
+      }
       $message['subject'] = t('Upcoming Payment');
       $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_pmt_upcoming', ''), $params);
       break;
