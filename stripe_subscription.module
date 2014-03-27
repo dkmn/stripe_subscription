@@ -696,6 +696,19 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
 }
 
 /**
+ * Hook to alter above Subscription Form to allow dynamic setting of the
+ * default plan via URL, e.g.
+ * http://www.domain.tld/user/register?plan=id=1111
+ * DKMN 20140326
+ */
+function stripe_subscription_form_stripe_subscription_subscription_form_alter(&$form, &$form_state, $form_id = NULL) {
+ if(isset($_GET['plan_id'])){
+    $form['subscription']['plan_id']['#default_value'] = $_GET['plan_id'];
+  }
+  return $form;
+}
+
+/**
  * Submit handler for the stripe_subscription_subscription_form.
  * @see stripe_subscription_subscription_form
  */
