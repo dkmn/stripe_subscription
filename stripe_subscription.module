@@ -232,7 +232,10 @@ function stripe_subscription_cron() {
           $params['stripe_customer'] = $customer;
           $params['stripe_plan'] = $customer->subscription->plan;
 
-          drupal_mail('stripe_subscription', 'subscription_pmt_upcoming', $params['account']->mail, user_preferred_language($params['account']), $params);
+          // only send email if text has been entered into the configuration box
+          if(!(variable_get('stripe_subscribe_notify_pmt_upcoming') == '')){
+            drupal_mail('stripe_subscription', 'subscription_pmt_upcoming', $params['account']->mail, user_preferred_language($params['account']), $params);
+          }
       }
       else {
         // Something isn't right, re-sync customer
@@ -441,7 +444,10 @@ function stripe_subscription_stripe_webhook($event) {
       $params['stripe_customer'] = $event->data->object->customer;
       $params['event'] = $event;
       $params['stripe_plan'] = $event->data->object->plan;
-      drupal_mail('stripe_subscription', 'subscription_cancelled', $params['account']->mail, user_preferred_language($params['account']), $params);
+      // only send email if text has been entered into the configuration box
+      if(!(variable_get('stripe_subscribe_notify_cancelled') == '')){
+        drupal_mail('stripe_subscription', 'subscription_cancelled', $params['account']->mail, user_preferred_language($params['account']), $params);
+      }
       break;
 
     case 'invoice.payment_succeeded':
@@ -467,7 +473,11 @@ function stripe_subscription_stripe_webhook($event) {
       $params['event'] = $event;
       $params['invoice-id'] = $event->data->object->id;
       $params['amount'] = stripe_subscription_format_price($event->data->object->amount_due);
-      drupal_mail('stripe_subscription', 'payment_failed', $params['account']->mail, user_preferred_language($params['account']), $params);
+
+      // only send email if text has been entered into the configuration box
+      if(!(variable_get('stripe_subscribe_notify_pmt_failed') == '')){
+        drupal_mail('stripe_subscription', 'payment_failed', $params['account']->mail, user_preferred_language($params['account']), $params);
+      }
       break;
   }
 }
