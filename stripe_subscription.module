@@ -238,7 +238,10 @@ function stripe_subscription_cron() {
           $params['stripe_customer'] = $customer;
           $params['stripe_plan'] = $customer->subscription->plan;
 
-          drupal_mail('stripe_subscription', 'subscription_pmt_upcoming', $params['account']->mail, user_preferred_language($params['account']), $params);
+          // only send email if text has been entered into the configuration box
+          if(!(variable_get('stripe_subscribe_notify_pmt_upcoming') == '')){
+            drupal_mail('stripe_subscription', 'subscription_pmt_upcoming', $params['account']->mail, user_preferred_language($params['account']), $params);
+          }
       }
       else {
         // Something isn't right, re-sync customer
@@ -446,7 +449,11 @@ function stripe_subscription_stripe_webhook($event) {
       watchdog('stripe_subscription', 'Check Stripe Library Singleton API version', NULL, WATCHDOG_DEBUG);
       watchdog('stripe_subscription', Stripe::getApiVersion(), NULL, WATCHDOG_DEBUG);
       watchdog('stripe_subscription', $params['stripe_plan'], NULL, WATCHDOG_DEBUG);
-      drupal_mail('stripe_subscription', 'subscription_created', $params['account']->mail, user_preferred_language($params['account']), $params);
+      // only send email if text has been entered into the configuration box
+      if(!(variable_get('stripe_subscribe_notify_created') == '')){
+        $message['send'] = FALSE;
+        drupal_mail('stripe_subscription', 'subscription_created', $params['account']->mail, user_preferred_language($params['account']), $params);
+      }
       break;
 
     case 'customer.subscription.updated':
@@ -503,7 +510,10 @@ function stripe_subscription_stripe_webhook($event) {
       $params['stripe_customer'] = $event->data->object->customer;
       $params['event'] = $event;
       $params['stripe_plan'] = $event->data->object->plan;
-      drupal_mail('stripe_subscription', 'subscription_cancelled', $params['account']->mail, user_preferred_language($params['account']), $params);
+      // only send email if text has been entered into the configuration box
+      if(!(variable_get('stripe_subscribe_notify_cancelled') == '')){
+        drupal_mail('stripe_subscription', 'subscription_cancelled', $params['account']->mail, user_preferred_language($params['account']), $params);
+      }
       break;
 
     case 'invoice.payment_succeeded':
@@ -534,7 +544,10 @@ function stripe_subscription_stripe_webhook($event) {
         $params['account']->status = 1; // Set regardless of current value; if already activated, no harm but save processing
         user_save($params['account']);
       }
-      drupal_mail('stripe_subscription', 'payment_succeeded', $params['account']->mail, user_preferred_language($params['account']), $params);
+      // only send email if text has been entered into the configuration box
+      if(!(variable_get('stripe_subscribe_notify_pmt_success') == '')){
+        drupal_mail('stripe_subscription', 'payment_succeeded', $params['account']->mail, user_preferred_language($params['account']), $params);
+      }
       break;
 
     case 'invoice.payment_failed':
@@ -559,7 +572,11 @@ function stripe_subscription_stripe_webhook($event) {
       $params['event'] = $event;
       $params['invoice-id'] = $event->data->object->id;
       $params['amount'] = stripe_subscription_format_price($event->data->object->amount_due);
-      drupal_mail('stripe_subscription', 'payment_failed', $params['account']->mail, user_preferred_language($params['account']), $params);
+
+      // only send email if text has been entered into the configuration box
+      if(!(variable_get('stripe_subscribe_notify_pmt_failed') == '')){
+        drupal_mail('stripe_subscription', 'payment_failed', $params['account']->mail, user_preferred_language($params['account']), $params);
+      }
       break;
 /**
     case 'charge.failed':
@@ -793,6 +810,23 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
     );
   }
 
+  if(isset($_GET['plan_id'])){
+    $form['subscription']['plan_id']['#default_value'] = $_GET['plan_id'];
+  }
+
+  return $form;
+}
+
+/**
+ * Hook to alter above Subscription Form to allow dynamic setting of the
+ * default plan via URL, e.g.
+ * http://www.domain.tld/user/register?plan=id=1111
+ * DKMN 20140326
+ */
+function stripe_subscription_form_stripe_subscription_subscription_form_alter(&$form, &$form_state, $form_id = NULL) {
+ if(isset($_GET['plan_id'])){
+    $form['subscription']['plan_id']['#default_value'] = $_GET['plan_id'];
+  }
   return $form;
 }
 
@@ -1151,9 +1185,6 @@ function stripe_subscription_mail($key, &$message, $params) {
 
   switch ($key) {
     case 'subscription_created':
-      if(variable_get('stripe_subscribe_notify_created') == ''){
-        $message['send'] = FALSE;
-      }
       $message['subject'] = t('New Subscription');
       $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_created', ''), $params);
       break;
@@ -1168,33 +1199,21 @@ function stripe_subscription_mail($key, &$message, $params) {
       break;
 
     case 'subscription_cancelled':
-      if(variable_get('stripe_subscribe_notify_cancelled') == ''){
-        $message['send'] = FALSE;
-      }
       $message['subject'] = t('Subscription Cancelled');
       $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_cancelled', ''), $params);
       break;
 
     case 'payment_succeeded':
-      if(variable_get('stripe_subscribe_notify_pmt_success') == ''){
-        $message['send'] = FALSE;
-      }
       $message['subject'] = t('Payment Received');
       $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_pmt_success', ''), $params);
       break;
 
     case 'payment_failed':
-      if(variable_get('stripe_subscribe_notify_pmt_failed') == ''){
-        $message['send'] = FALSE;
-      }
       $message['subject'] = t('Payment Failed');
       $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_pmt_failed', ''), $params);
       break;
 
     case 'subscription_pmt_upcoming':
-      if(variable_get('stripe_subscribe_notify_pmt_upcoming') == ''){
-        $message['send'] = FALSE;
-      }
       $message['subject'] = t('Upcoming Payment');
       $message['body'][] = token_replace(variable_get('stripe_subscribe_notify_pmt_upcoming', ''), $params);
       break;
