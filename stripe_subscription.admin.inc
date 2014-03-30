@@ -12,7 +12,7 @@ function stripe_subscription_admin_settings($form, &$form_state) {
   $publishable = stripe_get_key("publishable");
   $error = NULL;
   if (empty($secret) || empty($publishable)) {
-    $error = t("Please configure the stripe keys below to see your acccount information");
+    $error = t("Please configure the stripe keys below to see your account information");
   }
   elseif (!$library = libraries_load('stripe') || empty($library['loaded'])) {
     $error = t("Failed to load Stripe library.");
