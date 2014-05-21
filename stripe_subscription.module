@@ -757,16 +757,20 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
     $plan_options[$plan->id] = stripe_subscription_plan_name($plan);
   }
 
-  if ($available_plan_count == 1) {
-    $form['subscription']['sub_title'] = array(
-      '#markup' => '<p>' . $plan_options[$plan_keys[0]] . '</p>'
-    );
-    $form['subscription']['plan_id'] = array(
-      '#type' => 'hidden',
-      '#value' => $plan_keys[0]
-    );
-  }
-  elseif ($available_plan_count > 0) {
+  //DKMN commenting out the single-plan case that renders without a pick list
+  //this also preserves the "Update card details" option in the case of a
+  //single alternate plan.
+//  if ($available_plan_count == 1) {
+//    $form['subscription']['sub_title'] = array(
+//      '#markup' => '<p>' . $plan_options[$plan_keys[0]] . '</p>'
+//    );
+//    $form['subscription']['plan_id'] = array(
+//      '#type' => 'hidden',
+//      '#value' => $plan_keys[0]
+//    );
+//  }
+//  else
+  if ($available_plan_count > 0) {
     $form['subscription']['plan_id'] = array(
       '#type' => 'select',
       '#title' => t('%action Subscription Plan', array('%action' => $action)),
@@ -776,8 +780,10 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
   }
   
   else {
+    //DKMN edit to preserve the "Update card info only" option if no other plans
     $form['subscription']['plan_id'] = array(
-      '#type' => 'hidden',
+      '#type' => 'select',
+      '#options' => $plan_options,
       '#value' => '_none'
     );
   }
