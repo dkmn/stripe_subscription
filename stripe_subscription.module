@@ -775,7 +775,7 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
       '#type' => 'select',
       '#title' => t('%action Subscription Plan', array('%action' => $action)),
       '#options' => $plan_options,
-      '#default_value' => !isset($current_plan) ? $plan_keys[0] : NULL
+      '#default_value' => !isset($current_plan) ? $plan_keys[0] : NULL,
     );
   }
   
