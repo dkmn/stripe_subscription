@@ -748,6 +748,13 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
     if ($plan->id == $current_plan) {
       continue;
     }
+    //DKMN check if current user has permission to subscribe to this plan
+    if (user_access('subscribe: ' . $plan->id)){
+      watchdog('stripe_subscription', 'passed access check for:' . 'subscribe: ' . $plan->id, NULL, WATCHDOG_DEBUG);
+    }else{
+      watchdog('stripe_subscription', 'failed access check for:' . 'subscribe: ' . $plan->id, NULL, WATCHDOG_DEBUG);
+      continue;
+    }
     $available_plan_count++;
     $plan_keys[] = $plan->id;
     $plan_options[$plan->id] = stripe_subscription_plan_name($plan);
