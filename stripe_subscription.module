@@ -673,6 +673,17 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
     }
   }
 
+  // If the customer object is valid, request the customer
+  // default card to show current billing arrangements.
+  if (is_object($customer) && !empty($customer->default_card)) {
+    try {
+      $active_card = $customer->cards->retrieve($customer->default_card);
+    }
+    catch(Exception $e) {
+      //
+    }
+  }
+
   $form['customer_id'] = array(
     '#type' => 'hidden',
     '#value' => $customer_id
@@ -738,10 +749,10 @@ function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL)
   $current_plan = is_object($subscription) && isset($subscription->plan) ? $subscription->plan->id : NULL;
 
   // Set current card info
-  if ( is_object($subscription) && isset($customer) && is_object($customer->active_card)) {
+  if ( is_object($subscription) && isset($customer) && is_object($active_card)) {
     //$form['card_number']['#default_value'] = $customer->active_card->type . '-****-' . $customer->active_card->last4;
-    $exp_month = str_pad($customer->active_card->exp_month, 2, "0", STR_PAD_LEFT);
-    $form['subscription']['info']['#markup'] = '<p><label>Card on file </label>' . $customer->active_card->type . ' XXXX-' . $customer->active_card->last4 . ' expires ' . $exp_month . '/' . $customer->active_card->exp_year . '</p>';
+    $exp_month = str_pad($active_card->exp_month, 2, "0", STR_PAD_LEFT);
+    $form['subscription']['info']['#markup'] = '<p><label>Card on file </label>' . $active_card->type . ' XXXX-' . $active_card->last4 . ' expires ' . $exp_month . '/' . $active_card->exp_year . '</p>';
   }
 
   $available_plan_count = 0;
