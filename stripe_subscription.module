@@ -626,6 +626,8 @@ function stripe_subscription_context_registry() {
  */
 function stripe_subscription_subscription_form($form, &$form_state, $uid = NULL) {
   libraries_load('stripe');
+  Stripe::setApiVersion('2013-10-29');
+
 
   if (!isset($form_state['storage']['plan_list'] )) {
     $form_state['storage']['plan_list'] = _stripe_subscription_get_plans();
