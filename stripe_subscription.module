@@ -957,7 +957,7 @@ function stripe_subscription_subscription_form_submit($form, &$form_state) {
   }
 
   stripe_subscription_sync_customer($customer, $form_state['values']['uid']);
-  drupal_set_message('Your subscription has been updated. You will receive email conformation shortly.');
+  drupal_set_message('Your subscription has been updated. ');
 }
 
 /**
